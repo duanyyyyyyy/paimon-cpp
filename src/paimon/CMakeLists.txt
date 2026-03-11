@@ -76,6 +76,8 @@ set(PAIMON_COMMON_SRCS
     common/memory/memory_slice_input.cpp
     common/memory/memory_slice_output.cpp
     common/metrics/metrics_impl.cpp
+    common/metrics/histogram.cpp
+    common/metrics/histogram_windowing.cpp
     common/options/memory_size.cpp
     common/options/time_duration.cpp
     common/predicate/and.cpp
@@ -387,6 +389,8 @@ if(PAIMON_BUILD_TESTS)
                     common/io/offset_input_stream_test.cpp
                     common/logging/logging_test.cpp
                     common/metrics/metrics_impl_test.cpp
+                    common/metrics/histogram_test.cpp
+                    common/metrics/histogram_windowing_test.cpp
                     common/options/memory_size_test.cpp
                     common/options/time_duration_test.cpp
                     common/predicate/literal_converter_test.cpp
