@@ -101,11 +101,8 @@ Result<std::unique_ptr<MergeFileSplitRead>> MergeFileSplitRead::Create(
     PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<Predicate> predicate_for_keys,
                            GenerateKeyPredicates(context->GetPredicate(), *table_schema));
 
-    PAIMON_ASSIGN_OR_RAISE(std::vector<std::string> trimmed_primary_key,
-                           table_schema->TrimmedPrimaryKeys());
-    PAIMON_ASSIGN_OR_RAISE(std::vector<DataField> pk_fields,
-                           table_schema->GetFields(trimmed_primary_key));
-    auto key_schema = DataField::ConvertDataFieldsToArrowSchema(pk_fields);
+    PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<arrow::Schema> key_schema,
+                           table_schema->TrimmedPrimaryKeySchema());
 
     // projection is the mapping from value_schema in KeyValue object to raw_read_schema
     PAIMON_ASSIGN_OR_RAISE(
@@ -222,7 +219,8 @@ Result<std::unique_ptr<FileBatchReader>> MergeFileSplitRead::ApplyIndexAndDvRead
 Result<std::unique_ptr<BatchReader>> MergeFileSplitRead::CreateMergeReader(
     const std::shared_ptr<DataSplitImpl>& data_split,
     const std::shared_ptr<DataFilePathFactory>& data_file_path_factory) {
-    auto dv_factory = CreateDeletionVectorFactory(CreateDeletionFileMap(*data_split));
+    auto dv_factory = DeletionVector::CreateFactory(options_.GetFileSystem(),
+                                                    CreateDeletionFileMap(*data_split), pool_);
 
     std::vector<std::vector<SortedRun>> sections =
         IntervalPartition(data_split->DataFiles(), interval_partition_comparator_).Partition();
@@ -243,7 +241,8 @@ Result<std::unique_ptr<BatchReader>> MergeFileSplitRead::CreateMergeReader(
 Result<std::unique_ptr<BatchReader>> MergeFileSplitRead::CreateNoMergeReader(
     const std::shared_ptr<DataSplitImpl>& data_split, bool only_filter_key,
     const std::shared_ptr<DataFilePathFactory>& data_file_path_factory) const {
-    auto dv_factory = CreateDeletionVectorFactory(CreateDeletionFileMap(*data_split));
+    auto dv_factory = DeletionVector::CreateFactory(options_.GetFileSystem(),
+                                                    CreateDeletionFileMap(*data_split), pool_);
 
     // create read schema without extra fields (e.g., completed key, sequence fields)
     auto row_kind_field = DataField::ConvertDataFieldToArrowField(SpecialFields::ValueKind());

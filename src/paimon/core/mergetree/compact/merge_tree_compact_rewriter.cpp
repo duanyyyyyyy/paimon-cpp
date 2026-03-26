@@ -15,6 +15,8 @@
  */
 #include "paimon/core/mergetree/compact/merge_tree_compact_rewriter.h"
 
+#include <cassert>
+
 #include "arrow/c/bridge.h"
 #include "arrow/c/helpers.h"
 #include "paimon/common/table/special_fields.h"
@@ -38,7 +40,8 @@ MergeTreeCompactRewriter::MergeTreeCompactRewriter(
     const std::shared_ptr<FileStorePathFactoryCache>& path_factory_cache,
     std::unique_ptr<MergeFileSplitRead>&& merge_file_split_read,
     MergeFunctionWrapperFactory merge_function_wrapper_factory,
-    const std::shared_ptr<MemoryPool>& pool)
+    const std::shared_ptr<MemoryPool>& pool,
+    const std::shared_ptr<CancellationController>& cancellation_controller)
     : options_(options),
       merge_file_split_read_(std::move(merge_file_split_read)),
       pool_(pool),
@@ -50,13 +53,17 @@ MergeTreeCompactRewriter::MergeTreeCompactRewriter(
       write_schema_(write_schema),
       dv_factory_(std::move(dv_factory)),
       path_factory_cache_(path_factory_cache),
-      merge_function_wrapper_factory_(std::move(merge_function_wrapper_factory)) {}
+      merge_function_wrapper_factory_(std::move(merge_function_wrapper_factory)),
+      cancellation_controller_(cancellation_controller) {
+    assert(cancellation_controller_ != nullptr);
+}
 
 Result<std::unique_ptr<MergeTreeCompactRewriter>> MergeTreeCompactRewriter::Create(
     int32_t bucket, const BinaryRow& partition, const std::shared_ptr<TableSchema>& table_schema,
     DeletionVector::Factory dv_factory,
     const std::shared_ptr<FileStorePathFactoryCache>& path_factory_cache,
-    const CoreOptions& options, const std::shared_ptr<MemoryPool>& pool) {
+    const CoreOptions& options, const std::shared_ptr<MemoryPool>& pool,
+    const std::shared_ptr<CancellationController>& cancellation_controller) {
     PAIMON_ASSIGN_OR_RAISE(std::vector<std::string> trimmed_primary_keys,
                            table_schema->TrimmedPrimaryKeys());
     auto data_schema = DataField::ConvertDataFieldsToArrowSchema(table_schema->Fields());
@@ -84,7 +91,7 @@ Result<std::unique_ptr<MergeTreeCompactRewriter>> MergeTreeCompactRewriter::Crea
     return std::unique_ptr<MergeTreeCompactRewriter>(new MergeTreeCompactRewriter(
         partition, bucket, table_schema->Id(), trimmed_primary_keys, options, data_schema,
         write_schema, std::move(dv_factory), path_factory_cache, std::move(merge_file_split_read),
-        merge_function_wrapper_factory, pool));
+        merge_function_wrapper_factory, pool, cancellation_controller));
 }
 
 Result<CompactResult> MergeTreeCompactRewriter::Upgrade(int32_t output_level,
@@ -190,7 +197,7 @@ Status MergeTreeCompactRewriter::MergeReadAndWrite(
     merge_file_split_read_->SetMergeFunctionWrapper(wrapper);
     PAIMON_ASSIGN_OR_RAISE(std::unique_ptr<SortMergeReader> sort_merge_reader,
                            merge_file_split_read_->CreateSortMergeReaderForSection(
-                               section, partition_, /*dv_factory=*/{},
+                               section, partition_, dv_factory_,
                                /*predicate=*/nullptr, data_file_path_factory, drop_delete));
 
     // consumer batch size is WriteBatchSize
@@ -201,6 +208,9 @@ Status MergeTreeCompactRewriter::MergeReadAndWrite(
     reader_holders.push_back(async_key_value_producer_consumer);
     // read KeyValueBatch from SortMergeReader and write to RollingWriter
     while (true) {
+        if (cancellation_controller_->IsCancelled()) {
+            return Status::Cancelled("Compaction is cancelled");
+        }
         PAIMON_ASSIGN_OR_RAISE(KeyValueBatch key_value_batch,
                                async_key_value_producer_consumer->NextBatch());
         if (key_value_batch.batch == nullptr) {

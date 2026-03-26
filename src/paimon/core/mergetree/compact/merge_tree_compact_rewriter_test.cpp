@@ -44,10 +44,12 @@ class MergeTreeCompactRewriterTest : public testing::Test {
             return std::shared_ptr<DeletionVector>();
         };
 
+        auto cancellation_controller = std::make_shared<CancellationController>();
         auto path_factory_cache =
             std::make_shared<FileStorePathFactoryCache>(table_path, table_schema, options, pool_);
         return MergeTreeCompactRewriter::Create(bucket, partition, table_schema, dv_factory,
-                                                path_factory_cache, options, pool_);
+                                                path_factory_cache, options, pool_,
+                                                cancellation_controller);
     }
 
     Result<std::vector<std::vector<SortedRun>>> GenerateSortedRuns(
