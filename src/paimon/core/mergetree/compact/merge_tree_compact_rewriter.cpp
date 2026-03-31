@@ -71,7 +71,10 @@ Result<std::unique_ptr<MergeTreeCompactRewriter>> MergeTreeCompactRewriter::Crea
 
     // TODO(xinyu.lxy): set executor
     ReadContextBuilder read_context_builder(path_factory_cache->RootPath());
-    read_context_builder.SetOptions(options.ToMap()).EnablePrefetch(true).WithMemoryPool(pool);
+    read_context_builder.SetOptions(options.ToMap())
+        .EnablePrefetch(true)
+        .SetPrefetchMaxParallelNum(1)
+        .WithMemoryPool(pool);
     PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<ReadContext> read_context,
                            read_context_builder.Finish());
 
@@ -141,8 +144,8 @@ MergeTreeCompactRewriter::CreateRollingRowWriter(int32_t level) {
                                CreateDataFilePathFactory(format->Identifier()));
 
         auto writer = std::make_unique<KeyValueDataFileWriter>(
-            options_.GetFileCompression(), converter, schema_id_, level, FileSource::Compact(),
-            trimmed_primary_keys_, stats_extractor, write_schema_,
+            options_.GetWriteFileCompression(level), converter, schema_id_, level,
+            FileSource::Compact(), trimmed_primary_keys_, stats_extractor, write_schema_,
             data_file_path_factory->IsExternalPath(), pool_);
         PAIMON_RETURN_NOT_OK(writer->Init(options_.GetFileSystem(),
                                           data_file_path_factory->NewPath(), writer_builder));
