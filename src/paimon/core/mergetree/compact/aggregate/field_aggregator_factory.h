@@ -80,7 +80,15 @@ class FieldAggregatorFactory {
                 "Use unsupported aggregation {} or spell aggregate function incorrectly!",
                 str_agg));
         }
+        bool remove_record_on_retract = options.AggregationRemoveRecordOnDelete();
         PAIMON_ASSIGN_OR_RAISE(bool ignore_retract, options.FieldAggIgnoreRetract(field_name));
+        if (remove_record_on_retract && ignore_retract) {
+            return Status::Invalid(fmt::format(
+                "{} and {}.{}.{} have conflicting behavior so should not be enabled at the same "
+                "time.",
+                Options::AGGREGATION_REMOVE_RECORD_ON_DELETE, Options::FIELDS_PREFIX, field_name,
+                Options::IGNORE_RETRACT));
+        }
         if (ignore_retract) {
             field_aggregator = std::make_unique<FieldIgnoreRetractAgg>(std::move(field_aggregator));
         }

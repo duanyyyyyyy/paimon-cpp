@@ -347,6 +347,10 @@ struct PAIMON_EXPORT Options {
     /// "global-index.external-path" - Global index root directory, if not set, the global index
     /// files will be stored under the index directory.
     static const char GLOBAL_INDEX_EXTERNAL_PATH[];
+    /// "aggregation.remove-record-on-delete" - Whether to remove the whole row in aggregation
+    /// engine when delete records are received. Default value is "false".
+    static const char AGGREGATION_REMOVE_RECORD_ON_DELETE[];
+
     /// "scan.tag-name" - Optional tag name used in case of "from-snapshot" scan mode.
     static const char SCAN_TAG_NAME[];
     /// "write-only" - If set to "true", compactions and snapshot expiration will be skipped. This

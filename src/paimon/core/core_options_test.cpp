@@ -96,6 +96,7 @@ TEST(CoreOptionsTest, TestDefaultValue) {
                                                /*deletion_vector=*/false, /*force_lookup=*/false};
     ASSERT_EQ(expected_lookup_strategy, core_options.GetLookupStrategy());
     ASSERT_TRUE(core_options.GetFieldsSequenceGroups().empty());
+    ASSERT_FALSE(core_options.AggregationRemoveRecordOnDelete());
     ASSERT_FALSE(core_options.PartialUpdateRemoveRecordOnDelete());
     ASSERT_TRUE(core_options.GetPartialUpdateRemoveRecordOnSequenceGroup().empty());
     ASSERT_EQ(std::nullopt, core_options.GetScanFallbackBranch());
@@ -181,6 +182,7 @@ TEST(CoreOptionsTest, TestFromMap) {
         {Options::CHANGELOG_PRODUCER, "full-compaction"},
         {Options::FORCE_LOOKUP, "true"},
         {"fields.g_1,g_3.sequence-group", "c,d"},
+        {Options::AGGREGATION_REMOVE_RECORD_ON_DELETE, "true"},
         {Options::PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE, "true"},
         {Options::PARTIAL_UPDATE_REMOVE_RECORD_ON_SEQUENCE_GROUP, "a,b"},
         {Options::SCAN_FALLBACK_BRANCH, "fallback"},
@@ -292,6 +294,7 @@ TEST(CoreOptionsTest, TestFromMap) {
     std::map<std::string, std::string> seq_grp;
     seq_grp["g_1,g_3"] = "c,d";
     ASSERT_EQ(core_options.GetFieldsSequenceGroups(), seq_grp);
+    ASSERT_TRUE(core_options.AggregationRemoveRecordOnDelete());
     ASSERT_TRUE(core_options.PartialUpdateRemoveRecordOnDelete());
     ASSERT_EQ(core_options.GetPartialUpdateRemoveRecordOnSequenceGroup(),
               std::vector<std::string>({"a", "b"}));

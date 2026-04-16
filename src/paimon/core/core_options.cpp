@@ -418,6 +418,7 @@ struct CoreOptions::Impl {
     bool force_lookup = false;
     bool lookup_wait = true;
     bool partial_update_remove_record_on_delete = false;
+    bool aggregation_remove_record_on_delete = false;
     bool file_index_read_enabled = true;
     bool enable_adaptive_prefetch_strategy = true;
     bool index_file_in_data_file_dir = false;
@@ -628,6 +629,9 @@ struct CoreOptions::Impl {
         // Parse partial-update.remove-record-on-delete - remove whole row on delete
         PAIMON_RETURN_NOT_OK(parser.Parse<bool>(Options::PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE,
                                                 &partial_update_remove_record_on_delete));
+        // Parse aggregation_remove_record_on_delete
+        PAIMON_RETURN_NOT_OK(parser.Parse<bool>(Options::AGGREGATION_REMOVE_RECORD_ON_DELETE,
+                                                &aggregation_remove_record_on_delete));
         // Parse partial-update.remove-record-on-sequence-group
         PAIMON_RETURN_NOT_OK(parser.ParseList<std::string>(
             Options::PARTIAL_UPDATE_REMOVE_RECORD_ON_SEQUENCE_GROUP, Options::FIELDS_SEPARATOR,
@@ -1196,6 +1200,10 @@ std::map<std::string, std::string> CoreOptions::GetFieldsSequenceGroups() const 
 
 bool CoreOptions::PartialUpdateRemoveRecordOnDelete() const {
     return impl_->partial_update_remove_record_on_delete;
+}
+
+bool CoreOptions::AggregationRemoveRecordOnDelete() const {
+    return impl_->aggregation_remove_record_on_delete;
 }
 
 std::vector<std::string> CoreOptions::GetPartialUpdateRemoveRecordOnSequenceGroup() const {
