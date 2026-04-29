@@ -23,13 +23,10 @@
 namespace paimon {
 
 Result<std::shared_ptr<SstFileReader>> SstFileReader::Create(
-    const std::shared_ptr<InputStream>& in, const BlockHandle& index_block_handle,
+    const BlockHandle& index_block_handle,
     const std::optional<BloomFilterHandle>& bloom_filter_handle,
-    MemorySlice::SliceComparator comparator, const std::shared_ptr<CacheManager>& cache_manager,
+    MemorySlice::SliceComparator comparator, const std::shared_ptr<BlockCache>& block_cache,
     const std::shared_ptr<MemoryPool>& pool) {
-    PAIMON_ASSIGN_OR_RAISE(std::string file_path, in->GetUri());
-    auto block_cache = std::make_shared<BlockCache>(file_path, in, cache_manager, pool);
-
     // read bloom filter directly now
     std::shared_ptr<BloomFilter> bloom_filter = nullptr;
     if (bloom_filter_handle.has_value() &&
@@ -67,7 +64,7 @@ Result<std::shared_ptr<SstFileReader>> SstFileReader::Create(
 
 Result<std::shared_ptr<SstFileReader>> SstFileReader::CreateForSortLookupStore(
     const std::shared_ptr<InputStream>& in, MemorySlice::SliceComparator comparator,
-    const std::shared_ptr<CacheManager>& cache_manager, const std::shared_ptr<MemoryPool>& pool) {
+    const std::shared_ptr<BlockCache>& block_cache, const std::shared_ptr<MemoryPool>& pool) {
     PAIMON_ASSIGN_OR_RAISE(uint64_t file_len, in->Length());
     PAIMON_RETURN_NOT_OK(
         in->Seek(file_len - SortLookupStoreFooter::ENCODED_LENGTH, SeekOrigin::FS_SEEK_SET));
@@ -78,9 +75,9 @@ Result<std::shared_ptr<SstFileReader>> SstFileReader::CreateForSortLookupStore(
     auto footer_input = footer_slice.ToInput();
     PAIMON_ASSIGN_OR_RAISE(std::unique_ptr<SortLookupStoreFooter> read_footer,
                            SortLookupStoreFooter::ReadSortLookupStoreFooter(&footer_input));
-    return SstFileReader::Create(in, read_footer->GetIndexBlockHandle(),
+    return SstFileReader::Create(read_footer->GetIndexBlockHandle(),
                                  read_footer->GetBloomFilterHandle(), std::move(comparator),
-                                 cache_manager, pool);
+                                 block_cache, pool);
 }
 
 SstFileReader::SstFileReader(const std::shared_ptr<MemoryPool>& pool,
@@ -113,8 +110,8 @@ Result<std::shared_ptr<Bytes>> SstFileReader::Lookup(const std::shared_ptr<Bytes
                                GetNextBlock(index_block_iterator));
         PAIMON_ASSIGN_OR_RAISE(bool success, current->SeekTo(key_slice));
         if (success) {
-            PAIMON_ASSIGN_OR_RAISE(std::unique_ptr<BlockEntry> ret, current->Next());
-            return ret->value.CopyBytes(pool_.get());
+            PAIMON_ASSIGN_OR_RAISE(BlockEntry ret, current->Next());
+            return ret.value.CopyBytes(pool_.get());
         }
     }
     return std::shared_ptr<Bytes>();
@@ -122,8 +119,8 @@ Result<std::shared_ptr<Bytes>> SstFileReader::Lookup(const std::shared_ptr<Bytes
 
 Result<std::unique_ptr<BlockIterator>> SstFileReader::GetNextBlock(
     std::unique_ptr<BlockIterator>& index_iterator) {
-    PAIMON_ASSIGN_OR_RAISE(std::unique_ptr<BlockEntry> block_entry, index_iterator->Next());
-    auto block_input = block_entry->value.ToInput();
+    PAIMON_ASSIGN_OR_RAISE(BlockEntry block_entry, index_iterator->Next());
+    auto block_input = block_entry.value.ToInput();
     PAIMON_ASSIGN_OR_RAISE(BlockHandle block_handle, BlockHandle::ReadBlockHandle(&block_input));
     PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<BlockReader> reader, ReadBlock(block_handle, false));
     return reader->Iterator();
@@ -150,10 +147,8 @@ Result<std::shared_ptr<BlockReader>> SstFileReader::ReadBlock(const BlockHandle&
 Result<MemorySegment> SstFileReader::DecompressBlock(const MemorySegment& compressed_data,
                                                      const std::shared_ptr<BlockTrailer>& trailer,
                                                      const std::shared_ptr<MemoryPool>& pool) {
-    auto input_memory = compressed_data.GetHeapMemory();
-
     // check crc32c
-    auto crc32c_code = CRC32C::calculate(input_memory->data(), input_memory->size());
+    auto crc32c_code = CRC32C::calculate(compressed_data.Data(), compressed_data.Size());
     auto compression_val =
         static_cast<char>(static_cast<int32_t>(trailer->CompressionType()) & 0xFF);
     crc32c_code = CRC32C::calculate(&compression_val, 1, crc32c_code);
@@ -175,15 +170,15 @@ Result<MemorySegment> SstFileReader::DecompressBlock(const MemorySegment& compre
         auto input = slice.ToInput();
         PAIMON_ASSIGN_OR_RAISE(int32_t uncompressed_size, input.ReadVarLenInt());
         auto output = MemorySegment::AllocateHeapMemory(uncompressed_size, pool.get());
-        auto output_memory = output.GetHeapMemory();
+
         PAIMON_ASSIGN_OR_RAISE(
             int32_t actual_uncompressed_size,
-            decompressor->Decompress(input_memory->data() + input.Position(), input.Available(),
-                                     output_memory->data(), output_memory->size()));
-        if (static_cast<size_t>(actual_uncompressed_size) != output_memory->size()) {
+            decompressor->Decompress(compressed_data.Data() + input.Position(), input.Available(),
+                                     output.MutableData(), output.Size()));
+        if (actual_uncompressed_size != output.Size()) {
             return Status::Invalid(fmt::format(
                 "Invalid data: expect uncompressed size {}, actual uncompressed size {}",
-                output_memory->size(), actual_uncompressed_size));
+                output.Size(), actual_uncompressed_size));
         }
         return output;
     }

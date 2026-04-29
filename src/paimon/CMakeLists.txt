@@ -76,7 +76,6 @@ set(PAIMON_COMMON_SRCS
     common/memory/memory_segment.cpp
     common/memory/memory_segment_utils.cpp
     common/memory/memory_slice.cpp
-    common/memory/memory_slice_input.cpp
     common/memory/memory_slice_output.cpp
     common/metrics/metrics_impl.cpp
     common/metrics/histogram.cpp
@@ -142,6 +141,7 @@ set(PAIMON_COMMON_SRCS
     common/utils/byte_range_combiner.cpp
     common/utils/roaring_bitmap32.cpp
     common/utils/roaring_bitmap64.cpp
+    common/utils/row_range_index.cpp
     common/utils/status.cpp
     common/utils/string_utils.cpp)
 
@@ -216,6 +216,7 @@ set(PAIMON_CORE_SRCS
     core/io/key_value_data_file_record_reader.cpp
     core/io/key_value_data_file_writer.cpp
     core/io/key_value_in_memory_record_reader.cpp
+    core/io/merged_key_value_record_reader.cpp
     core/io/key_value_meta_projection_consumer.cpp
     core/io/key_value_projection_consumer.cpp
     core/io/key_value_projection_reader.cpp
@@ -249,6 +250,7 @@ set(PAIMON_CORE_SRCS
     core/mergetree/compact/lookup_merge_tree_compact_rewriter.cpp
     core/mergetree/compact/changelog_merge_tree_rewriter.cpp
     core/mergetree/merge_tree_writer.cpp
+    core/mergetree/in_memory_sort_buffer.cpp
     core/mergetree/write_buffer.cpp
     core/mergetree/levels.cpp
     core/mergetree/lookup_file.cpp
@@ -408,6 +410,7 @@ if(PAIMON_BUILD_TESTS)
                     common/file_index/bloomfilter/fast_hash_test.cpp
                     common/global_index/complete_index_score_batch_reader_test.cpp
                     common/global_index/global_index_result_test.cpp
+                    common/global_index/global_index_utils_test.cpp
                     common/global_index/global_indexer_factory_test.cpp
                     common/global_index/bitmap_global_index_result_test.cpp
                     common/global_index/bitmap_scored_global_index_result_test.cpp
@@ -417,6 +420,8 @@ if(PAIMON_BUILD_TESTS)
                     common/global_index/btree/key_serializer_test.cpp
                     common/global_index/btree/btree_global_index_integration_test.cpp
                     common/global_index/btree/btree_compatibility_test.cpp
+                    common/global_index/btree/btree_file_meta_selector_test.cpp
+                    common/global_index/btree/lazy_filtered_btree_reader_test.cpp
                     common/global_index/rangebitmap/range_bitmap_global_index_test.cpp
                     common/global_index/wrap/file_index_reader_wrapper_test.cpp
                     common/io/byte_array_input_stream_test.cpp
@@ -450,6 +455,7 @@ if(PAIMON_BUILD_TESTS)
                     common/types/data_type_json_parser_test.cpp
                     common/types/row_kind_test.cpp
                     common/types/data_type_test.cpp
+                    common/utils/row_range_index_test.cpp
                     common/utils/var_length_int_utils_test.cpp
                     common/utils/arrow/arrow_utils_test.cpp
                     common/utils/arrow/arrow_stream_adapter_test.cpp
@@ -569,6 +575,7 @@ if(PAIMON_BUILD_TESTS)
                     core/io/key_value_data_file_record_reader_test.cpp
                     core/io/key_value_projection_reader_test.cpp
                     core/io/key_value_in_memory_record_reader_test.cpp
+                    core/io/merged_key_value_record_reader_test.cpp
                     core/io/complete_row_tracking_fields_reader_test.cpp
                     core/io/data_file_meta_test.cpp
                     core/io/file_index_evaluator_test.cpp
