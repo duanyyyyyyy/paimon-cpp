@@ -40,7 +40,6 @@
 #include "paimon/core/utils/duration.h"
 #include "paimon/format/parquet/parquet_field_id_converter.h"
 #include "paimon/format/parquet/parquet_format_defs.h"
-#include "paimon/format/parquet/parquet_metrics.h"
 #include "paimon/format/parquet/parquet_timestamp_converter.h"
 #include "paimon/format/parquet/predicate_converter.h"
 #include "paimon/reader/batch_reader.h"
