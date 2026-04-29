@@ -37,8 +37,10 @@
 #include "paimon/common/metrics/metrics_impl.h"
 #include "paimon/common/utils/arrow/status_utils.h"
 #include "paimon/common/utils/options_utils.h"
+#include "paimon/core/utils/duration.h"
 #include "paimon/format/parquet/parquet_field_id_converter.h"
 #include "paimon/format/parquet/parquet_format_defs.h"
+#include "paimon/format/parquet/parquet_metrics.h"
 #include "paimon/format/parquet/parquet_timestamp_converter.h"
 #include "paimon/format/parquet/predicate_converter.h"
 #include "paimon/reader/batch_reader.h"
@@ -151,6 +153,10 @@ Status ParquetFileBatchReader::SetReadSchema(
     read_row_groups_ = row_groups;
     read_column_indices_ = column_indices;
 
+    metrics_->SetCounter(ParquetMetrics::READ_ROW_GROUPS_TOTAL,
+                         reader_->GetNumberOfRowGroups());
+    metrics_->SetCounter(ParquetMetrics::READ_ROW_GROUPS_FILTERED, row_groups.size());
+
     PAIMON_ASSIGN_OR_RAISE(std::set<int32_t> ordered_row_groups,
                            reader_->FilterRowGroupsByReadRanges(read_ranges_, read_row_groups_));
     return reader_->PrepareForReadingLazy(ordered_row_groups, read_column_indices_);
@@ -221,6 +227,7 @@ Result<std::vector<int32_t>> ParquetFileBatchReader::FilterRowGroupsByBitmap(
 }
 
 Result<BatchReader::ReadBatch> ParquetFileBatchReader::NextBatch() {
+    Duration timer;
     PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<arrow::RecordBatch> batch, reader_->Next());
     if (batch == nullptr) {
         return BatchReader::MakeEofBatch();
@@ -243,6 +250,14 @@ Result<BatchReader::ReadBatch> ParquetFileBatchReader::NextBatch() {
     std::unique_ptr<ArrowArray> c_array = std::make_unique<ArrowArray>();
     std::unique_ptr<ArrowSchema> c_schema = std::make_unique<ArrowSchema>();
     PAIMON_RETURN_NOT_OK_FROM_ARROW(arrow::ExportArray(*array, c_array.get(), c_schema.get()));
+
+    read_rows_ += array->length();
+    read_batch_count_++;
+    read_next_batch_latency_ms_ += timer.Get();
+    metrics_->SetCounter(ParquetMetrics::READ_ROWS, read_rows_);
+    metrics_->SetCounter(ParquetMetrics::READ_BATCH_COUNT, read_batch_count_);
+    metrics_->SetCounter(ParquetMetrics::READ_NEXT_BATCH_LATENCY_MS, read_next_batch_latency_ms_);
+
     return make_pair(std::move(c_array), std::move(c_schema));
 }
 
