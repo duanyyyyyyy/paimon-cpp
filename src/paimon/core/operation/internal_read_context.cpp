@@ -18,6 +18,8 @@
 
 #include <utility>
 
+#include "paimon/common/predicate/compound_predicate_impl.h"
+#include "paimon/common/predicate/leaf_predicate_impl.h"
 #include "paimon/common/predicate/predicate_validator.h"
 #include "paimon/common/table/special_fields.h"
 #include "paimon/common/types/data_field.h"
@@ -29,6 +31,50 @@ class Schema;
 }  // namespace arrow
 
 namespace paimon {
+namespace {
+// Remap each leaf predicate's field index to the position of its field in
+// `read_schema`. The field name is the stable identity used for lookup. The
+// upstream (Java SDK / FE) constructs predicates against the latest table
+// schema, so when a query projects a subset of columns the predicate's field
+// index no longer matches the position in the projected `read_schema`. The
+// downstream predicate-test code uses the field index directly, so leaving
+// the mismatch in place would silently read the wrong column. Remap once at
+// context construction so every subsequent reader sees a predicate already
+// aligned with `read_schema`.
+Result<std::shared_ptr<Predicate>> RemapPredicateFieldIndex(
+    const arrow::Schema& read_schema, const std::shared_ptr<Predicate>& predicate) {
+    if (auto leaf = std::dynamic_pointer_cast<LeafPredicateImpl>(predicate)) {
+        int32_t new_index = read_schema.GetFieldIndex(leaf->FieldName());
+        if (new_index == -1) {
+            return Status::Invalid(
+                fmt::format("field {} does not exist in schema", leaf->FieldName()));
+        }
+        if (new_index == leaf->FieldIndex()) {
+            return predicate;
+        }
+        return std::static_pointer_cast<Predicate>(leaf->NewLeafPredicate(new_index));
+    }
+    if (auto compound = std::dynamic_pointer_cast<CompoundPredicateImpl>(predicate)) {
+        std::vector<std::shared_ptr<Predicate>> remapped_children;
+        remapped_children.reserve(compound->Children().size());
+        bool any_changed = false;
+        for (const auto& child : compound->Children()) {
+            PAIMON_ASSIGN_OR_RAISE(auto remapped, RemapPredicateFieldIndex(read_schema, child));
+            if (remapped != child) {
+                any_changed = true;
+            }
+            remapped_children.push_back(std::move(remapped));
+        }
+        if (!any_changed) {
+            return predicate;
+        }
+        return std::static_pointer_cast<Predicate>(
+            compound->NewCompoundPredicate(remapped_children));
+    }
+    return predicate;
+}
+}  // namespace
+
 Result<std::unique_ptr<InternalReadContext>> InternalReadContext::Create(
     const std::shared_ptr<ReadContext>& context, const std::shared_ptr<TableSchema>& table_schema,
     const std::map<std::string, std::string>& options) {
@@ -85,25 +131,30 @@ Result<std::unique_ptr<InternalReadContext>> InternalReadContext::Create(
     auto read_schema = DataField::ConvertDataFieldsToArrowSchema(read_data_fields);
     // validate read schema to avoid redundant fields
     PAIMON_RETURN_NOT_OK(ArrowSchemaValidator::ValidateSchemaWithFieldId(*read_schema));
-    // validate predicate
+    // remap and validate predicate
+    std::shared_ptr<Predicate> remapped_predicate;
     if (context->GetPredicate()) {
+        PAIMON_ASSIGN_OR_RAISE(
+            remapped_predicate, RemapPredicateFieldIndex(*read_schema, context->GetPredicate()));
         PAIMON_RETURN_NOT_OK(PredicateValidator::ValidatePredicateWithSchema(
-            *read_schema, context->GetPredicate(), /*validate_field_idx=*/true));
+            *read_schema, remapped_predicate, /*validate_field_idx=*/true));
         PAIMON_RETURN_NOT_OK(
-            PredicateValidator::ValidatePredicateWithLiterals(context->GetPredicate()));
+            PredicateValidator::ValidatePredicateWithLiterals(remapped_predicate));
     }
 
-    return std::unique_ptr<InternalReadContext>(
-        new InternalReadContext(context, table_schema, read_schema, core_options));
+    return std::unique_ptr<InternalReadContext>(new InternalReadContext(
+        context, table_schema, read_schema, core_options, std::move(remapped_predicate)));
 }
 
 InternalReadContext::InternalReadContext(const std::shared_ptr<ReadContext>& read_context,
                                          const std::shared_ptr<TableSchema>& table_schema,
                                          const std::shared_ptr<arrow::Schema>& read_schema,
-                                         const CoreOptions& options)
+                                         const CoreOptions& options,
+                                         std::shared_ptr<Predicate> remapped_predicate)
     : read_context_(read_context),
       table_schema_(table_schema),
       read_schema_(read_schema),
-      options_(options) {}
+      options_(options),
+      remapped_predicate_(std::move(remapped_predicate)) {}
 
 }  // namespace paimon

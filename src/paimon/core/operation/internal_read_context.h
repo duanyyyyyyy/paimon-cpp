@@ -62,8 +62,13 @@ class InternalReadContext {
     const std::vector<std::string>& GetPrimaryKeys() const {
         return table_schema_->PrimaryKeys();
     }
+    // Returns the predicate with each leaf's field index already remapped to its position
+    // in `read_schema_`. Upstream constructs predicates against the latest table schema,
+    // so when the query projects a subset of columns the original indices no longer
+    // match the projected schema. The remapping is done once at context construction; all
+    // subsequent reader code can use this index directly.
     const std::shared_ptr<Predicate>& GetPredicate() const {
-        return read_context_->GetPredicate();
+        return remapped_predicate_;
     }
     bool EnablePredicateFilter() const {
         return read_context_->EnablePredicateFilter();
@@ -102,12 +107,14 @@ class InternalReadContext {
     InternalReadContext(const std::shared_ptr<ReadContext>& read_context,
                         const std::shared_ptr<TableSchema>& table_schema,
                         const std::shared_ptr<arrow::Schema>& read_schema,
-                        const CoreOptions& options);
+                        const CoreOptions& options,
+                        std::shared_ptr<Predicate> remapped_predicate);
 
     std::shared_ptr<ReadContext> read_context_;
     std::shared_ptr<TableSchema> table_schema_;
     std::shared_ptr<arrow::Schema> read_schema_;
     CoreOptions options_;
+    std::shared_ptr<Predicate> remapped_predicate_;
 };
 
 }  // namespace paimon
